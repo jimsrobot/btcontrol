@@ -1,1 +1,17 @@
 Bluetooth Arduino reflow oven controller
+
+Designed to work with the board on jimsrobot.com
+
+The board has bluetooth which allows an Android device to upload a reflow profile.
+
+Board specs:
+ - ATTiny85 processor
+ - Arduino bootloaded
+ - Thermocouple amplifier for K-Type
+ - Bluetooth V2
+ - Digital switch input
+ - Digital output for SSR
+ 
+Directory Structure:
+ \BTControl - the Arduino files
+ \B4A - the basic for Android 
