@@ -1,0 +1,191 @@
+﻿Version=2.71
+IconFile=
+NumberOfModules=3
+Module1=ProfileList
+ModuleVisible1=1
+Module2=EditStage
+ModuleVisible2=1
+Module3=StageList
+ModuleVisible3=1
+Package=jimsrobot.arduino.attiny85ad8495bt
+DoNotOverwriteManifest=False
+ManifestCode='This code will be applied to the manifest file during compilation.~\n~'You do not need to modify it in most cases.~\n~'See this link for for more information: http://www.basic4ppc.com/forum/showthread.php?p=78136~\n~AddManifestText(~\n~<uses-sdk android:minSdkVersion="4"/>~\n~<supports-screens android:largeScreens="true" ~\n~    android:normalScreens="true" ~\n~    android:smallScreens="true" ~\n~    android:anyDensity="true"/>)~\n~SetApplicationAttribute(android:icon, "@drawable/icon")~\n~SetApplicationAttribute(android:label, "$LABEL$")~\n~'End of default text.~\n~
+UserTypesHint=NameAndMac,SortItem
+NumberOfFiles=6
+File1=bt-oven.png
+File2=EditStage.bal
+File3=main.bal
+File4=ProfileList.bal
+File5=StageList.bal
+File6=start.bal
+NumberOfLibraries=8
+Library1=audio
+Library2=core
+Library3=dialogs
+Library4=phone
+Library5=randomaccessfile
+Library6=serial
+Library7=sql
+Library8=stringfunctions
+@EndOfDesignText@
+#Region Module Attributes
+	#FullScreen: True
+	#IncludeTitle: True
+	#ApplicationLabel: Wireless Reflow
+	#VersionCode: 1
+	#VersionName: 
+	#SupportedOrientations: portrait
+	#CanInstallToExternalStorage: False
+#End Region
+
+'Activity module
+Sub Process_Globals
+	Dim admin As BluetoothAdmin
+	Dim serial1 As Serial
+	Dim foundDevices As List
+	Type NameAndMac (Name As String, Mac As String)
+	Dim connectedDevice As NameAndMac
+	Dim SQL1 As SQL 
+	Dim default_mac_id As String 
+	Dim SkipBT As Boolean 	
+End Sub
+
+Sub Globals
+	Dim btnSearchForDevices As Button
+	Dim btnSkip As Button 
+	Dim btnSearchForDevices As Button 
+	Dim bSameBTDevice As Boolean 			:bSameBTDevice  = False
+	Dim bMatchedDevice As Boolean 		:bMatchedDevice = False
+
+End Sub
+
+Sub Activity_Create(FirstTime As Boolean)
+	If FirstTime Then
+		admin.Initialize("admin")
+	  serial1.Initialize("serial1")
+		SQL1.Initialize(File.DirDefaultExternal, "wirelessreflow.db", True)
+		LoadSQLTables
+	End If
+	Activity.LoadLayout("start")
+End Sub
+
+#Region SQL
+Sub LoadSQLTables
+	SQL1.ExecNonQuery("CREATE TABLE IF NOT EXISTS default_device (mac_id TEXT)")
+
+	'Check if we have a default mac_id
+	default_mac_id = SQL1.ExecQuerySingleResult ("SELECT * FROM default_device")
+End Sub
+#End Region 
+
+Sub Activity_Resume
+	btnSearchForDevices.Enabled = False
+	If admin.IsEnabled = False Then
+		If admin.Enable = False Then 
+			ToastMessageShow("Error enabling Bluetooth adapter.", True)
+		Else
+			ToastMessageShow("Enabling Bluetooth adapter...", False)
+			'the StateChanged event will be soon raised
+		End If
+	Else
+		Admin_StateChanged(admin.STATE_ON, 0)
+	End If
+End Sub
+
+Sub Admin_StateChanged (NewState As Int, OldState As Int)
+	btnSearchForDevices.Enabled = (NewState = admin.STATE_ON)
+End Sub
+
+Sub Activity_Pause (UserClosed As Boolean)
+	If UserClosed = True Then
+		serial1.Disconnect
+	End If
+End Sub
+
+Sub btnConnectSame_Click
+	bSameBTDevice = True
+	StartSearch
+End Sub
+
+Sub btnSearchForDevices_Click
+	bSameBTDevice = False	
+	StartSearch
+End Sub
+
+Sub StartSearch
+	foundDevices.Initialize
+	
+	If admin.StartDiscovery	= False Then 
+		ToastMessageShow("Error starting discovery process.", True)
+	Else
+		ProgressDialogShow("Searching for devices...")
+	End If
+End Sub
+
+Sub Admin_DiscoveryFinished
+	ProgressDialogHide
+	If foundDevices.Size = 0 Then
+		ToastMessageShow("No device found.", True)
+	Else If bMatchedDevice = True AND bSameBTDevice = True Then		
+		For i = 0 To foundDevices.Size - 1
+			Dim nm As NameAndMac
+			nm = foundDevices.Get(i)
+			If nm.Mac = default_mac_id Then
+				connectedDevice = nm
+				ProgressDialogShow("Trying to connect to: " & connectedDevice.Name & " (" & connectedDevice.Mac & ")")
+				serial1.Connect(connectedDevice.Mac)
+			End If
+		Next
+	Else
+		Dim l As List
+		l.Initialize
+		For i = 0 To foundDevices.Size - 1
+			Dim nm As NameAndMac
+			nm = foundDevices.Get(i)
+			l.Add(nm.Name)
+		Next
+		Dim res As Int
+		res = InputList(l, "Choose device to connect", -1)
+		If res <> DialogResponse.CANCEL Then
+			connectedDevice = foundDevices.Get(res)
+			ProgressDialogShow("Trying to connect to: " & connectedDevice.Name & " (" & connectedDevice.Mac & ")")
+			serial1.Connect(connectedDevice.Mac)
+			'Save the connected device as the default
+			SQL1.ExecNonQuery("DELETE FROM default_device")
+			SQL1.ExecNonQuery("INSERT INTO default_device VALUES('" & connectedDevice.Mac & "')")
+			
+		End If
+	End If
+End Sub
+
+Sub Admin_DeviceFound (Name As String, MacAddress As String)
+	Log(Name & ":" & MacAddress)
+	Dim nm As NameAndMac
+	nm.Name = Name
+	nm.Mac = MacAddress
+	foundDevices.Add(nm)
+	
+	If nm.Mac = default_mac_id AND bSameBTDevice = True Then
+		bMatchedDevice = True 
+		admin.CancelDiscovery 
+	Else
+		ProgressDialogShow("Searching for devices (~ device found)...".Replace("~", foundDevices.Size))
+	End If
+End Sub
+
+Sub Serial1_Connected (Success As Boolean)
+	ProgressDialogHide
+	Log("connected: " & Success)
+	If Success = False Then
+		Log(LastException.Message)
+		ToastMessageShow("Error connecting: " & LastException.Message, True)
+	Else
+		SkipBT = False
+		StartActivity(ProfileList)
+	End If
+End Sub
+
+Sub btnSkip_Click
+	SkipBT = True
+	StartActivity(ProfileList)
+End Sub
